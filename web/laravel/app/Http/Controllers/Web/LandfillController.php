@@ -1,0 +1,162 @@
+<?php
+
+namespace App\Http\Controllers\Web;
+
+use App\Http\Controllers\Controller;
+use App\Models\Landfill;
+use App\Models\Village;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
+
+class LandfillController extends Controller
+{
+    public function index(Request $request): View
+    {
+        $landfills = Landfill::withCoordinates()
+            ->with('village:id,name')
+            ->orderBy('name')
+            ->paginate(10);
+
+        return view('landfills.index', compact('landfills'));
+    }
+
+    public function create(): View
+    {
+        $villages = Village::where('is_active', true)->orderBy('name')->get();
+        $landfill = new Landfill(['is_active' => true]);
+
+        return view('landfills.form', compact('landfill', 'villages'));
+    }
+
+    public function store(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'village_id' => ['required', 'integer', 'exists:villages,id'],
+            'name' => ['required', 'string', 'max:150', 'unique:landfills,name'],
+            'address' => ['required', 'string', 'max:255', 'regex:/^[\pL\pN\s().,\/]+$/u', 'unique:landfills,address'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'is_active' => ['boolean'],
+        ], [
+            'village_id.required' => 'Kelurahan wajib dipilih.',
+            'village_id.exists' => 'Kelurahan yang dipilih tidak valid.',
+
+            'name.required' => 'Nama fasilitas TPA / TPS-3R wajib diisi.',
+            'name.max' => 'Nama fasilitas maksimal 150 karakter.',
+            'name.unique' => 'Nama fasilitas ini sudah terdaftar, gunakan nama yang lain.',
+
+            'address.required' => 'Alamat wajib diisi.',
+            'address.max' => 'Alamat maksimal 255 karakter.',
+            'address.regex' => 'Format alamat mengandung karakter yang tidak diizinkan.',
+            'address.unique' => 'Alamat ini sudah terdaftar oleh fasilitas lain.',
+
+            'latitude.required' => 'Titik koordinat latitude wajib diisi.',
+            'latitude.numeric' => 'Latitude harus berupa angka.',
+            'latitude.between' => 'Nilai latitude harus berada di antara -90 dan 90.',
+
+            'longitude.required' => 'Titik koordinat longitude wajib diisi.',
+            'longitude.numeric' => 'Longitude harus berupa angka.',
+            'longitude.between' => 'Nilai longitude harus berada di antara -180 dan 180.',
+        ]);
+
+        $lat = (float) $request->input('latitude');
+        $lng = (float) $request->input('longitude');
+
+        DB::statement("
+            INSERT INTO landfills (village_id, name, address, description, is_active, location)
+            VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_Point(?, ?), 4326))
+        ", [
+            $request->input('village_id'),
+            $request->input('name'),
+            $request->input('address'),
+            $request->input('description'),
+            $request->boolean('is_active', true),
+            $lng,
+            $lat,
+        ]);
+
+        return redirect()->route('landfills.index')->with('success', 'Fasilitas TPA / TPS-3R berhasil ditambahkan.');
+    }
+
+    public function edit(int $id): View
+    {
+        $landfill = Landfill::withCoordinates()->findOrFail($id);
+        $villages = Village::where('is_active', true)->orderBy('name')->get();
+
+        return view('landfills.form', compact('landfill', 'villages'));
+    }
+
+    public function update(Request $request, int $id): RedirectResponse
+    {
+        $request->validate([
+            'village_id' => ['required', 'integer', 'exists:villages,id'],
+            'name' => ['required', 'string', 'max:150', 'unique:landfills,name,' . $id],
+            'address' => ['required', 'string', 'max:255', 'regex:/^[\pL\pN\s().,\/]+$/u', 'unique:landfills,address,' . $id],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'is_active' => ['boolean'],
+        ], [
+            'village_id.required' => 'Kelurahan wajib dipilih.',
+            'village_id.exists' => 'Kelurahan yang dipilih tidak valid.',
+
+            'name.required' => 'Nama fasilitas TPA / TPS-3R wajib diisi.',
+            'name.max' => 'Nama fasilitas maksimal 150 karakter.',
+            'name.unique' => 'Nama fasilitas ini sudah terdaftar, gunakan nama yang lain.',
+
+            'address.required' => 'Alamat wajib diisi.',
+            'address.max' => 'Alamat maksimal 255 karakter.',
+            'address.regex' => 'Format alamat mengandung karakter yang tidak diizinkan.',
+            'address.unique' => 'Alamat ini sudah terdaftar oleh fasilitas lain.',
+
+            'latitude.required' => 'Titik koordinat latitude wajib diisi.',
+            'latitude.numeric' => 'Latitude harus berupa angka.',
+            'latitude.between' => 'Nilai latitude harus berada di antara -90 dan 90.',
+
+            'longitude.required' => 'Titik koordinat longitude wajib diisi.',
+            'longitude.numeric' => 'Longitude harus berupa angka.',
+            'longitude.between' => 'Nilai longitude harus berada di antara -180 dan 180.',
+        ]);
+
+        $lat = (float) $request->input('latitude');
+        $lng = (float) $request->input('longitude');
+
+        DB::statement("
+            UPDATE landfills
+            SET village_id = ?, name = ?, address = ?, description = ?, is_active = ?, location = ST_SetSRID(ST_Point(?, ?), 4326)
+            WHERE id = ?
+        ", [
+            $request->input('village_id'),
+            $request->input('name'),
+            $request->input('address'),
+            $request->input('description'),
+            $request->boolean('is_active', true),
+            $lng,
+            $lat,
+            $id,
+        ]);
+
+        return redirect()->route('landfills.index')->with('success', 'Data TPA berhasil diperbarui.');
+    }
+
+    public function destroy(int $id): RedirectResponse
+    {
+        $landfill = Landfill::findOrFail($id);
+        $landfill->delete();
+
+        return redirect()->route('landfills.index')->with('success', 'Fasilitas TPA / TPS-3R berhasil dihapus.');
+    }
+
+    public function toggleStatus(int $id): RedirectResponse
+    {
+        $landfill = Landfill::findOrFail($id);
+        $landfill->is_active = !$landfill->is_active;
+        $landfill->save();
+
+        $status = $landfill->is_active ? 'diaktifkan' : 'dinonaktifkan';
+        return redirect()->back()->with('success', "Fasilitas {$landfill->name} berhasil {$status}.");
+    }
+}
